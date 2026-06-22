@@ -1,0 +1,222 @@
+package storage;
+
+import com.google.gson.*;
+import com.google.gson.reflect.TypeToken;
+import model.Task;
+import model.TaskStatus;
+
+import java.io.*;
+import java.lang.reflect.Type;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class TaskStorage {
+    private static final String DATA_FILE = "data/tasks.json";
+    private Map<Integer, Task> tasks;
+    private int nextId;
+    private Stack<String> actionHistory;
+    private Queue<Task> taskQueue;
+
+    public TaskStorage() {
+        this.tasks = new HashMap<>();
+        this.nextId = 1;
+        this.actionHistory = new Stack<>();
+        this.taskQueue = new LinkedList<>();
+        loadFromFile();
+    }
+
+    public Task addTask(String title, String description, TaskStatus status, int priority) {
+        Task task = new Task(nextId++, title, description, status, priority);
+        tasks.put(task.getId(), task);
+        taskQueue.offer(task);
+        actionHistory.push("ADD:" + task.getId());
+        saveToFile();
+        return task;
+    }
+
+    public boolean deleteTask(int id) {
+        if (tasks.containsKey(id)) {
+            Task removed = tasks.remove(id);
+            actionHistory.push("DELETE:" + id);
+            saveToFile();
+            return true;
+        }
+        return false;
+    }
+
+    public boolean updateTask(int id, String title, String description, TaskStatus status, int priority) {
+        Task task = tasks.get(id);
+        if (task != null) {
+            task.setTitle(title);
+            task.setDescription(description);
+            task.setStatus(status);
+            task.setPriority(priority);
+            actionHistory.push("UPDATE:" + id);
+            saveToFile();
+            return true;
+        }
+        return false;
+    }
+
+    public List<Task> getAllTasks() {
+        return new ArrayList<>(tasks.values());
+    }
+
+    public Task getTask(int id) {
+        return tasks.get(id);
+    }
+
+    public List<Task> filterByStatus(TaskStatus status) {
+        return tasks.values().stream()
+                .filter(task -> task.getStatus() == status)
+                .collect(Collectors.toList());
+    }
+
+    public List<Task> filterByPriority(int priority) {
+        return tasks.values().stream()
+                .filter(task -> task.getPriority() == priority)
+                .collect(Collectors.toList());
+    }
+
+    public List<Task> filterByKeyword(String keyword) {
+        String lowerKeyword = keyword.toLowerCase();
+        return tasks.values().stream()
+                .filter(task -> task.getTitle().toLowerCase().contains(lowerKeyword) ||
+                               task.getDescription().toLowerCase().contains(lowerKeyword))
+                .collect(Collectors.toList());
+    }
+
+    public List<Task> filterByDateRange(LocalDateTime start, LocalDateTime end) {
+        return tasks.values().stream()
+                .filter(task -> !task.getCreatedAt().isBefore(start) && 
+                               !task.getCreatedAt().isAfter(end))
+                .collect(Collectors.toList());
+    }
+
+    public List<Task> filterTasks(TaskStatus status, Integer priority, String keyword, 
+                                  LocalDateTime startDate, LocalDateTime endDate) {
+        return tasks.values().stream()
+                .filter(task -> status == null || task.getStatus() == status)
+                .filter(task -> priority == null || task.getPriority() == priority)
+                .filter(task -> keyword == null || keyword.isEmpty() || 
+                               task.getTitle().toLowerCase().contains(keyword.toLowerCase()) ||
+                               task.getDescription().toLowerCase().contains(keyword.toLowerCase()))
+                .filter(task -> startDate == null || !task.getCreatedAt().isBefore(startDate))
+                .filter(task -> endDate == null || !task.getCreatedAt().isAfter(endDate))
+                .collect(Collectors.toList());
+    }
+
+    public boolean undoLastAction() {
+        if (actionHistory.isEmpty()) {
+            return false;
+        }
+        String action = actionHistory.pop();
+        loadFromFile();
+        return true;
+    }
+
+    public List<String> getActionHistory() {
+        return new ArrayList<>(actionHistory);
+    }
+
+    public int getQueueSize() {
+        return taskQueue.size();
+    }
+
+    public Task processQueue() {
+        return taskQueue.poll();
+    }
+
+    private void saveToFile() {
+        try {
+            File dataDir = new File("data");
+            if (!dataDir.exists()) {
+                dataDir.mkdirs();
+            }
+
+            Gson gson = new GsonBuilder()
+                    .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeAdapter())
+                    .setPrettyPrinting()
+                    .create();
+
+            Map<String, Object> saveData = new HashMap<>();
+            saveData.put("tasks", tasks.values());
+            saveData.put("nextId", nextId);
+            saveData.put("actionHistory", actionHistory);
+
+            try (FileWriter writer = new FileWriter(DATA_FILE)) {
+                gson.toJson(saveData, writer);
+            }
+        } catch (IOException e) {
+            System.err.println("Ошибка сохранения данных: " + e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void loadFromFile() {
+        File file = new File(DATA_FILE);
+        if (!file.exists()) {
+            return;
+        }
+
+        try {
+            Gson gson = new GsonBuilder()
+                    .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeAdapter())
+                    .create();
+
+            try (FileReader reader = new FileReader(file)) {
+                JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+                
+                JsonArray tasksArray = jsonObject.getAsJsonArray("tasks");
+                Type taskListType = new TypeToken<List<Task>>(){}.getType();
+                List<Task> taskList = gson.fromJson(tasksArray, taskListType);
+                
+                tasks.clear();
+                if (taskList != null) {
+                    for (Task task : taskList) {
+                        tasks.put(task.getId(), task);
+                    }
+                }
+
+                if (jsonObject.has("nextId")) {
+                    nextId = jsonObject.get("nextId").getAsInt();
+                } else {
+                    nextId = tasks.values().stream()
+                            .mapToInt(Task::getId)
+                            .max()
+                            .orElse(0) + 1;
+                }
+
+                if (jsonObject.has("actionHistory")) {
+                    JsonArray historyArray = jsonObject.getAsJsonArray("actionHistory");
+                    actionHistory.clear();
+                    for (JsonElement element : historyArray) {
+                        actionHistory.push(element.getAsString());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Ошибка загрузки данных: " + e.getMessage());
+            tasks.clear();
+            nextId = 1;
+            actionHistory.clear();
+        }
+    }
+
+    private static class LocalDateTimeAdapter implements JsonSerializer<LocalDateTime>, JsonDeserializer<LocalDateTime> {
+        private static final DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+        @Override
+        public JsonElement serialize(LocalDateTime src, Type typeOfSrc, JsonSerializationContext context) {
+            return new JsonPrimitive(src.format(formatter));
+        }
+
+        @Override
+        public LocalDateTime deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) 
+                throws JsonParseException {
+            return LocalDateTime.parse(json.getAsString(), formatter);
+        }
+    }
+}
