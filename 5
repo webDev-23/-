@@ -1,0 +1,265 @@
+package controller;
+
+import model.Task;
+import model.TaskStatus;
+import service.TaskService;
+import view.TaskView;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.List;
+
+public class TaskController {
+    private TaskService service;
+    private TaskView view;
+    private DateTimeFormatter dateFormatter;
+
+    public TaskController() {
+        this.service = new TaskService();
+        this.view = new TaskView();
+        this.dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    }
+
+    public void run() {
+        boolean running = true;
+        
+        while (running) {
+            view.showMenu();
+            int choice = view.getIntInput("Выберите действие: ", 0, 8);
+            
+            switch (choice) {
+                case 1:
+                    addTask();
+                    break;
+                case 2:
+                    viewAllTasks();
+                    break;
+                case 3:
+                    updateTask();
+                    break;
+                case 4:
+                    deleteTask();
+                    break;
+                case 5:
+                    filterTasks();
+                    break;
+                case 6:
+                    undoLastAction();
+                    break;
+                case 7:
+                    viewStatistics();
+                    break;
+                case 8:
+                    viewHistory();
+                    break;
+                case 0:
+                    running = false;
+                    view.showMessage("До свидания!");
+                    break;
+                default:
+                    view.showError("Неверный выбор. Пожалуйста, попробуйте снова.");
+            }
+        }
+    }
+
+    private void addTask() {
+        try {
+            view.showMessage("\n--- Добавление новой задачи ---");
+            String title = view.getStringInput("Введите заголовок: ");
+            String description = view.getStringInput("Введите описание: ");
+            TaskStatus status = view.getStatusInput("Введите статус (Новая/В процессе/Завершена/Отменена): ");
+            int priority = view.getIntInput("Введите приоритет (1-5): ", 1, 5);
+            
+            Task task = service.addTask(title, description, status, priority);
+            view.showMessage("✅ Задача успешно создана!");
+            view.showTaskDetails(task);
+        } catch (IllegalArgumentException e) {
+            view.showError("Ошибка: " + e.getMessage());
+        } catch (Exception e) {
+            view.showError("Произошла непредвиденная ошибка: " + e.getMessage());
+        }
+    }
+
+    private void viewAllTasks() {
+        List<Task> tasks = service.getAllTasks();
+        if (tasks.isEmpty()) {
+            view.showMessage("\n📋 Список задач пуст.");
+        } else {
+            view.showAllTasks(tasks);
+        }
+    }
+
+    private void updateTask() {
+        try {
+            view.showMessage("\n--- Обновление задачи ---");
+            int id = view.getIntInput("Введите ID задачи для обновления: ", 1, Integer.MAX_VALUE);
+            
+            Task existingTask = service.getTask(id);
+            if (existingTask == null) {
+                view.showError("Задача с ID " + id + " не найдена.");
+                return;
+            }
+            
+            view.showMessage("Текущие данные задачи:");
+            view.showTaskDetails(existingTask);
+            
+            String title = view.getStringInput("Новый заголовок (оставьте пустым для сохранения текущего): ");
+            String description = view.getStringInput("Новое описание (оставьте пустым для сохранения текущего): ");
+            TaskStatus status = view.getStatusInput("Новый статус (оставьте пустым для сохранения текущего): ");
+            Integer priority = view.getOptionalIntInput("Новый приоритет (1-5, оставьте пустым для сохранения текущего): ");
+            
+            String finalTitle = title.isEmpty() ? existingTask.getTitle() : title;
+            String finalDescription = description.isEmpty() ? existingTask.getDescription() : description;
+            TaskStatus finalStatus = status == null ? existingTask.getStatus() : status;
+            int finalPriority = priority == null ? existingTask.getPriority() : priority;
+            
+            if (service.updateTask(id, finalTitle, finalDescription, finalStatus, finalPriority)) {
+                view.showMessage("✅ Задача успешно обновлена!");
+            } else {
+                view.showError("Не удалось обновить задачу.");
+            }
+        } catch (IllegalArgumentException e) {
+            view.showError("Ошибка: " + e.getMessage());
+        } catch (Exception e) {
+            view.showError("Произошла непредвиденная ошибка: " + e.getMessage());
+        }
+    }
+
+    private void deleteTask() {
+        try {
+            view.showMessage("\n--- Удаление задачи ---");
+            int id = view.getIntInput("Введите ID задачи для удаления: ", 1, Integer.MAX_VALUE);
+            
+            if (service.deleteTask(id)) {
+                view.showMessage("✅ Задача успешно удалена!");
+            } else {
+                view.showError("Задача с ID " + id + " не найдена.");
+            }
+        } catch (IllegalArgumentException e) {
+            view.showError("Ошибка: " + e.getMessage());
+        } catch (Exception e) {
+            view.showError("Произошла непредвиденная ошибка: " + e.getMessage());
+        }
+    }
+
+    private void filterTasks() {
+        view.showMessage("\n--- Фильтрация задач ---");
+        view.showFilterMenu();
+        
+        int choice = view.getIntInput("Выберите тип фильтрации: ", 0, 5);
+        
+        try {
+            List<Task> filteredTasks = null;
+            
+            switch (choice) {
+                case 1:
+                    TaskStatus status = view.getStatusInput("Введите статус: ");
+                    filteredTasks = service.filterByStatus(status);
+                    break;
+                case 2:
+                    int priority = view.getIntInput("Введите приоритет (1-5): ", 1, 5);
+                    filteredTasks = service.filterByPriority(priority);
+                    break;
+                case 3:
+                    String keyword = view.getStringInput("Введите ключевое слово: ");
+                    filteredTasks = service.filterByKeyword(keyword);
+                    break;
+                case 4:
+                    view.showMessage("Введите диапазон дат (формат: YYYY-MM-DD HH:MM):");
+                    String startStr = view.getStringInput("Начальная дата: ");
+                    String endStr = view.getStringInput("Конечная дата: ");
+                    LocalDateTime start = LocalDateTime.parse(startStr, dateFormatter);
+                    LocalDateTime end = LocalDateTime.parse(endStr, dateFormatter);
+                    filteredTasks = service.filterByDateRange(start, end);
+                    break;
+                case 5:
+                    view.showMessage("Комплексная фильтрация (оставьте пустым для пропуска):");
+                    TaskStatus filterStatus = view.getOptionalStatusInput("Статус: ");
+                    Integer filterPriority = view.getOptionalIntInput("Приоритет (1-5): ");
+                    String filterKeyword = view.getStringInput("Ключевое слово: ");
+                    String startDateStr = view.getStringInput("Начальная дата (YYYY-MM-DD HH:MM): ");
+                    String endDateStr = view.getStringInput("Конечная дата (YYYY-MM-DD HH:MM): ");
+                    
+                    LocalDateTime filterStart = null;
+                    LocalDateTime filterEnd = null;
+                    
+                    if (!startDateStr.isEmpty()) {
+                        filterStart = LocalDateTime.parse(startDateStr, dateFormatter);
+                    }
+                    if (!endDateStr.isEmpty()) {
+                        filterEnd = LocalDateTime.parse(endDateStr, dateFormatter);
+                    }
+                    
+                    filteredTasks = service.filterTasks(filterStatus, filterPriority, filterKeyword, 
+                                                      filterStart, filterEnd);
+                    break;
+                case 0:
+                    return;
+                default:
+                    view.showError("Неверный выбор.");
+                    return;
+            }
+            
+            if (filteredTasks != null) {
+                if (filteredTasks.isEmpty()) {
+                    view.showMessage("\n📋 Задач, соответствующих критериям фильтрации, не найдено.");
+                } else {
+                    view.showAllTasks(filteredTasks);
+                }
+            }
+        } catch (DateTimeParseException e) {
+            view.showError("Ошибка формата даты. Используйте формат YYYY-MM-DD HH:MM");
+        } catch (IllegalArgumentException e) {
+            view.showError("Ошибка: " + e.getMessage());
+        } catch (Exception e) {
+            view.showError("Произошла непредвиденная ошибка: " + e.getMessage());
+        }
+    }
+
+    private void undoLastAction() {
+        if (service.undoLastAction()) {
+            view.showMessage("✅ Последнее действие отменено. Данные восстановлены из файла.");
+        } else {
+            view.showError("Нет действий для отмены.");
+        }
+    }
+
+    private void viewStatistics() {
+        view.showMessage("\n--- Статистика ---");
+        List<Task> allTasks = service.getAllTasks();
+        int total = allTasks.size();
+        
+        if (total == 0) {
+            view.showMessage("📋 Нет задач для отображения статистики.");
+            return;
+        }
+        
+        long newCount = allTasks.stream().filter(t -> t.getStatus() == TaskStatus.NEW).count();
+        long inProgressCount = allTasks.stream().filter(t -> t.getStatus() == TaskStatus.IN_PROGRESS).count();
+        long completedCount = allTasks.stream().filter(t -> t.getStatus() == TaskStatus.COMPLETED).count();
+        long cancelledCount = allTasks.stream().filter(t -> t.getStatus() == TaskStatus.CANCELLED).count();
+        
+        double avgPriority = allTasks.stream().mapToInt(Task::getPriority).average().orElse(0);
+        
+        view.showMessage("📊 Общее количество задач: " + total);
+        view.showMessage("   • Новая: " + newCount);
+        view.showMessage("   • В процессе: " + inProgressCount);
+        view.showMessage("   • Завершена: " + completedCount);
+        view.showMessage("   • Отменена: " + cancelledCount);
+        view.showMessage("📈 Средний приоритет: " + String.format("%.2f", avgPriority));
+    }
+
+    private void viewHistory() {
+        List<String> history = service.getActionHistory();
+        if (history.isEmpty()) {
+            view.showMessage("\n📋 История действий пуста.");
+        } else {
+            view.showMessage("\n--- История действий (последние 20) ---");
+            int start = Math.max(0, history.size() - 20);
+            for (int i = history.size() - 1; i >= start; i--) {
+                view.showMessage("  " + (history.size() - i) + ". " + history.get(i));
+            }
+        }
+    }
+}
