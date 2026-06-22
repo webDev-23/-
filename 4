@@ -1,0 +1,116 @@
+package service;
+
+import model.Task;
+import model.TaskStatus;
+import storage.TaskStorage;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class TaskService {
+    private TaskStorage storage;
+
+    public TaskService() {
+        this.storage = new TaskStorage();
+    }
+
+    public Task addTask(String title, String description, TaskStatus status, int priority) {
+        validateTaskData(title, description, priority);
+        return storage.addTask(title, description, status, priority);
+    }
+
+    public boolean deleteTask(int id) {
+        validateId(id);
+        return storage.deleteTask(id);
+    }
+
+    public boolean updateTask(int id, String title, String description, TaskStatus status, int priority) {
+        validateId(id);
+        validateTaskData(title, description, priority);
+        return storage.updateTask(id, title, description, status, priority);
+    }
+
+    public Task getTask(int id) {
+        validateId(id);
+        return storage.getTask(id);
+    }
+
+    public List<Task> getAllTasks() {
+        return storage.getAllTasks();
+    }
+
+    public List<Task> filterByStatus(TaskStatus status) {
+        if (status == null) {
+            throw new IllegalArgumentException("Статус не может быть null");
+        }
+        return storage.filterByStatus(status);
+    }
+
+    public List<Task> filterByPriority(int priority) {
+        if (priority < 1 || priority > 5) {
+            throw new IllegalArgumentException("Приоритет должен быть от 1 до 5");
+        }
+        return storage.filterByPriority(priority);
+    }
+
+    public List<Task> filterByKeyword(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Ключевое слово не может быть пустым");
+        }
+        return storage.filterByKeyword(keyword);
+    }
+
+    public List<Task> filterByDateRange(LocalDateTime start, LocalDateTime end) {
+        if (start == null || end == null) {
+            throw new IllegalArgumentException("Даты не могут быть null");
+        }
+        if (start.isAfter(end)) {
+            throw new IllegalArgumentException("Начальная дата не может быть позже конечной");
+        }
+        return storage.filterByDateRange(start, end);
+    }
+
+    public List<Task> filterTasks(TaskStatus status, Integer priority, String keyword, 
+                                  LocalDateTime startDate, LocalDateTime endDate) {
+        return storage.filterTasks(status, priority, keyword, startDate, endDate);
+    }
+
+    public boolean undoLastAction() {
+        return storage.undoLastAction();
+    }
+
+    public List<String> getActionHistory() {
+        return storage.getActionHistory();
+    }
+
+    public int getTaskCount() {
+        return storage.getAllTasks().size();
+    }
+
+    private void validateTaskData(String title, String description, int priority) {
+        if (title == null || title.trim().isEmpty()) {
+            throw new IllegalArgumentException("Заголовок не может быть пустым");
+        }
+        if (title.length() > 100) {
+            throw new IllegalArgumentException("Заголовок не должен превышать 100 символов");
+        }
+        if (description == null || description.trim().isEmpty()) {
+            throw new IllegalArgumentException("Описание не может быть пустым");
+        }
+        if (description.length() > 500) {
+            throw new IllegalArgumentException("Описание не должно превышать 500 символов");
+        }
+        if (priority < 1 || priority > 5) {
+            throw new IllegalArgumentException("Приоритет должен быть от 1 до 5");
+        }
+    }
+
+    private void validateId(int id) {
+        if (id < 1) {
+            throw new IllegalArgumentException("ID должен быть положительным числом");
+        }
+        if (storage.getTask(id) == null) {
+            throw new IllegalArgumentException("Задача с ID " + id + " не найдена");
+        }
+    }
+}
